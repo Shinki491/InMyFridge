@@ -60,9 +60,10 @@ export default function HomePage() {
       const data = await searchRecipes({
         ingredients: normalizedIngredients,
         filters: {
-          number: 10,
-          ranking: 1,
-          // maxReadyTime/diet will be wired on backend later
+        number: 10,
+        ranking: 1,
+        maxReadyTime: maxReadyTime === "" ? undefined : maxReadyTime,
+        diet: diet || undefined,
         },
       });
       setResults(data.results);

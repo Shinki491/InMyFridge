@@ -8,6 +8,7 @@ export type SearchRequest = {
     intolerances?: string[];
     number?: number;
     ranking?: 1 | 2;
+    ignorePantry?: boolean;
   };
 };
 
