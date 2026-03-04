@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { getRecipeDetails } from "../services/recipes.service";
 
 const router = Router();
 
@@ -8,28 +9,16 @@ type SearchBody = {
     number?: number;
     ranking?: 1 | 2;
     ignorePantry?: boolean;
+    maxReadyTime?: number;
+    diet?: string;
+    intolerances?: string[];
+    type?: string; // NEW
   };
 };
 
-function requireApiKey() {
-  const key = process.env.SPOONACULAR_API_KEY;
-  if (!key) throw new Error("Missing SPOONACULAR_API_KEY in server env");
-  return key;
-}
-
 router.post("/search", async (req, res) => {
   try {
-    const body = (req.body ?? {}) as {
-      ingredients: string[];
-      filters?: {
-        number?: number;
-        ranking?: 1 | 2;
-        ignorePantry?: boolean;
-        maxReadyTime?: number;
-        diet?: string;
-        intolerances?: string[];
-      };
-    };
+    const body = (req.body ?? {}) as SearchBody;
 
     const ingredients = Array.isArray(body.ingredients)
       ? body.ingredients.map((s) => String(s).trim().toLowerCase()).filter(Boolean)
@@ -46,16 +35,18 @@ router.post("/search", async (req, res) => {
     const maxReadyTime = body.filters?.maxReadyTime;
     const diet = body.filters?.diet?.trim();
     const intolerances = body.filters?.intolerances ?? [];
+    const type = body.filters?.type?.trim(); // NEW
 
     const apiKey = process.env.SPOONACULAR_API_KEY;
     if (!apiKey) return res.status(500).json({ error: "Missing SPOONACULAR_API_KEY" });
 
     const useComplex =
       Boolean(diet) ||
+      Boolean(type) ||
       Number.isFinite(maxReadyTime) ||
       (Array.isArray(intolerances) && intolerances.length > 0);
 
-    // 1) If no extra filters, keep using findByIngredients (best match data)
+    // Fast path: no complex-only filters
     if (!useComplex) {
       const url = new URL("https://api.spoonacular.com/recipes/findByIngredients");
       url.searchParams.set("apiKey", apiKey);
@@ -67,7 +58,11 @@ router.post("/search", async (req, res) => {
       const r = await fetch(url);
       if (!r.ok) {
         const text = await r.text();
-        return res.status(502).json({ error: "Spoonacular request failed", status: r.status, details: text.slice(0, 500) });
+        return res.status(502).json({
+          error: "Spoonacular request failed",
+          status: r.status,
+          details: text.slice(0, 500),
+        });
       }
 
       const data = (await r.json()) as any[];
@@ -93,31 +88,34 @@ router.post("/search", async (req, res) => {
       return res.json({ ingredients, filters: { number, ranking, ignorePantry }, results });
     }
 
-    // 2) With diet/time/intolerances: use complexSearch
+    // Complex path: supports diet, maxReadyTime, intolerances, type
     const url = new URL("https://api.spoonacular.com/recipes/complexSearch");
     url.searchParams.set("apiKey", apiKey);
     url.searchParams.set("number", String(number));
-    url.searchParams.set("addRecipeInformation", "true"); // gives diets, readyInMinutes, etc.
-    url.searchParams.set("fillIngredients", "true"); // gives extendedIngredients
+    url.searchParams.set("addRecipeInformation", "true");
+    url.searchParams.set("fillIngredients", "true");
     url.searchParams.set("instructionsRequired", "false");
 
-    // use includeIngredients to bias results to selected ingredients
     url.searchParams.set("includeIngredients", ingredients.join(","));
 
     if (Number.isFinite(maxReadyTime)) url.searchParams.set("maxReadyTime", String(maxReadyTime));
     if (diet) url.searchParams.set("diet", diet);
+    if (type) url.searchParams.set("type", type);
     if (intolerances.length > 0) url.searchParams.set("intolerances", intolerances.join(","));
 
     const r = await fetch(url);
     if (!r.ok) {
       const text = await r.text();
-      return res.status(502).json({ error: "Spoonacular complexSearch failed", status: r.status, details: text.slice(0, 500) });
+      return res.status(502).json({
+        error: "Spoonacular complexSearch failed",
+        status: r.status,
+        details: text.slice(0, 500),
+      });
     }
 
     const payload = (await r.json()) as { results: any[] };
     const data = payload.results ?? [];
 
-    // Compute a match score from extendedIngredients
     const results = data.map((item) => {
       const ext = Array.isArray(item.extendedIngredients) ? item.extendedIngredients : [];
       const recipeIngs = ext
@@ -142,13 +140,13 @@ router.post("/search", async (req, res) => {
         missedIngredientCount,
         matchScore,
         usedIngredients,
-        missedIngredients: [], // not reliable from complexSearch; keep empty for now
+        missedIngredients: [],
       };
     });
 
     return res.json({
       ingredients,
-      filters: { number, ranking, ignorePantry, maxReadyTime, diet, intolerances },
+      filters: { number, ranking, ignorePantry, maxReadyTime, diet, type, intolerances },
       results,
     });
   } catch (e) {
@@ -170,5 +168,4 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-import { getRecipeDetails } from "../services/recipes.service";
 export default router;

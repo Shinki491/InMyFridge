@@ -6,6 +6,7 @@ export type SearchRequest = {
     maxReadyTime?: number;
     diet?: string;
     intolerances?: string[];
+    type?: string; // NEW
     number?: number;
     ranking?: 1 | 2;
     ignorePantry?: boolean;

@@ -3,9 +3,30 @@ import { searchRecipes, type RecipeSearchResult } from "../api/recipes.api";
 import { getRecipeDetails } from "../api/recipeDetails.api";
 
 const DIETS = ["", "vegetarian", "vegan", "gluten free", "ketogenic"];
+const FOOD_TYPES = [
+  "",
+  "main course",
+  "side dish",
+  "dessert",
+  "appetizer",
+  "salad",
+  "bread",
+  "breakfast",
+  "soup",
+  "beverage",
+  "sauce",
+  "marinade",
+  "fingerfood",
+  "snack",
+  "drink",
+];
+
 const RESULTS_OPTIONS = [5, 10, 20, 30] as const;
 
-const STORAGE_KEY = "inmyfridge:v2";
+// Always fetch this many (max). Results dropdown controls display count.
+const FETCH_COUNT = 30;
+
+const STORAGE_KEY = "inmyfridge:v4";
 
 type SortBy = "bestMatch" | "fewestMissing" | "title";
 
@@ -13,9 +34,10 @@ type PersistedState = {
   ingredients: string[];
   maxReadyTime: number | "";
   diet: string;
+  foodType: string;
   sortBy: SortBy;
-  resultsCount: number;
-  lastResults: RecipeSearchResult[];
+  resultsCount: number; // display count
+  lastResults: RecipeSearchResult[]; // fetched batch
 };
 
 function loadPersisted(): PersistedState | null {
@@ -31,11 +53,15 @@ function loadPersisted(): PersistedState | null {
         ? parsed.resultsCount
         : 10;
 
+    const sortBy: SortBy =
+      parsed.sortBy === "fewestMissing" || parsed.sortBy === "title" ? parsed.sortBy : "bestMatch";
+
     return {
       ingredients: parsed.ingredients,
       maxReadyTime: typeof parsed.maxReadyTime === "number" || parsed.maxReadyTime === "" ? parsed.maxReadyTime : "",
       diet: typeof parsed.diet === "string" ? parsed.diet : "",
-      sortBy: parsed.sortBy === "fewestMissing" || parsed.sortBy === "title" ? parsed.sortBy : "bestMatch",
+      foodType: typeof parsed.foodType === "string" ? parsed.foodType : "",
+      sortBy,
       resultsCount,
       lastResults: Array.isArray(parsed.lastResults) ? parsed.lastResults : [],
     };
@@ -52,6 +78,7 @@ export default function HomePage() {
 
   const [maxReadyTime, setMaxReadyTime] = useState<number | "">(persisted?.maxReadyTime ?? "");
   const [diet, setDiet] = useState<string>(persisted?.diet ?? "");
+  const [foodType, setFoodType] = useState<string>(persisted?.foodType ?? "");
 
   const [sortBy, setSortBy] = useState<SortBy>(persisted?.sortBy ?? "bestMatch");
   const [resultsCount, setResultsCount] = useState<number>(persisted?.resultsCount ?? 10);
@@ -71,28 +98,27 @@ export default function HomePage() {
   const sortedResults = useMemo(() => {
     const arr = [...results];
 
-    if (sortBy === "bestMatch") {
-      arr.sort((a, b) => b.matchScore - a.matchScore);
-    } else if (sortBy === "fewestMissing") {
-      arr.sort((a, b) => a.missedIngredientCount - b.missedIngredientCount);
-    } else if (sortBy === "title") {
-      arr.sort((a, b) => a.title.localeCompare(b.title));
-    }
+    if (sortBy === "bestMatch") arr.sort((a, b) => b.matchScore - a.matchScore);
+    else if (sortBy === "fewestMissing") arr.sort((a, b) => a.missedIngredientCount - b.missedIngredientCount);
+    else if (sortBy === "title") arr.sort((a, b) => a.title.localeCompare(b.title));
 
     return arr;
   }, [results, sortBy]);
+
+  const visibleResults = useMemo(() => sortedResults.slice(0, resultsCount), [sortedResults, resultsCount]);
 
   useEffect(() => {
     const payload: PersistedState = {
       ingredients,
       maxReadyTime,
       diet,
+      foodType,
       sortBy,
       resultsCount,
       lastResults: results,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [ingredients, maxReadyTime, diet, sortBy, resultsCount, results]);
+  }, [ingredients, maxReadyTime, diet, foodType, sortBy, resultsCount, results]);
 
   function addIngredient() {
     const v = ingredientInput.trim().toLowerCase();
@@ -116,6 +142,7 @@ export default function HomePage() {
     setIngredientInput("");
     setMaxReadyTime("");
     setDiet("");
+    setFoodType("");
     setSortBy("bestMatch");
     setResultsCount(10);
     localStorage.removeItem(STORAGE_KEY);
@@ -137,14 +164,16 @@ export default function HomePage() {
       const data = await searchRecipes({
         ingredients: normalizedIngredients,
         filters: {
-          number: resultsCount,
+          number: FETCH_COUNT, // fetch a stable batch
           ranking: 1,
           maxReadyTime: maxReadyTime === "" ? undefined : maxReadyTime,
           diet: diet || undefined,
+          type: foodType || undefined,
         },
       });
+
       setResults(data.results);
-      setStatus(`Got ${data.results.length} results`);
+      setStatus(`Fetched ${data.results.length}. Showing ${Math.min(resultsCount, data.results.length)}.`);
     } catch {
       setStatus("Search failed");
     }
@@ -231,7 +260,18 @@ export default function HomePage() {
           </label>
 
           <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            Results
+            Food type
+            <select style={{ padding: 6 }} value={foodType} onChange={(e) => setFoodType(e.target.value)}>
+              {FOOD_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t || "any"}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            Results (show)
             <select
               style={{ padding: 6 }}
               value={resultsCount}
@@ -259,7 +299,7 @@ export default function HomePage() {
 
         <div style={{ marginBottom: 12 }}>{status}</div>
 
-        {sortedResults.length > 0 && (
+        {visibleResults.length > 0 && (
           <div
             style={{
               display: "grid",
@@ -268,7 +308,7 @@ export default function HomePage() {
               marginTop: 12,
             }}
           >
-            {sortedResults.map((r) => (
+            {visibleResults.map((r) => (
               <button
                 key={r.id}
                 type="button"
