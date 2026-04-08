@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-  "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\""
+    "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\""
   },
   "repository": {
     "type": "git",
@@ -20,5 +20,8 @@
   "homepage": "https://github.com/Shinki491/InMyFridge#readme",
   "devDependencies": {
     "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "lucide-react": "^1.7.0"
   }
 }

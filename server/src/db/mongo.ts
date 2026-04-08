@@ -1,9 +1,27 @@
 import mongoose from "mongoose";
 
-export async function connectMongo() {
-  const uri = process.env.MONGO_URI;
-  if (!uri) throw new Error("Missing MONGO_URI in server env");
+let mongoReady = false;
 
-  await mongoose.connect(uri);
-  console.log("MongoDB connected");
+export function isMongoReady() {
+  return mongoReady;
+}
+
+export async function connectMongoOptional() {
+  const uri = process.env.MONGO_URI;
+
+  if (!uri) {
+    console.log("MongoDB not configured. Continuing without DB.");
+    mongoReady = false;
+    return;
+  }
+
+  try {
+    await mongoose.connect(uri);
+    mongoReady = true;
+    console.log("MongoDB connected");
+  } catch (err) {
+    mongoReady = false;
+    console.log("MongoDB connection failed. Continuing without DB.");
+    console.log(String(err));
+  }
 }
